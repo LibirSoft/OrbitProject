@@ -69,7 +69,6 @@ const loop = (canvas) => {
 
 const draw = (object, ctx) => {
     ctx.beginPath();
-    // Sabit koordinatlar yerine object'in kendi koordinatlarını kullanalım
     ctx.arc(object.x, object.y, object.mass / 100, 0, 2 * Math.PI);
     ctx.fillStyle = object.color;
     ctx.fill();
@@ -89,7 +88,7 @@ const createObject = (posX, posY, mass, canMove,ghost) => {
         mass: mass,
         canMove: canMove,
         color: getRandomColor(),
-        velocityX: Math.random()*5 - 5,  // Hız bileşenleri eklendi
+        velocityX: Math.random()*5 - 5,
         velocityY: Math.random()*5 - 5,
         ghost
     };
