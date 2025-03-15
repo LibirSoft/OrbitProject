@@ -5,6 +5,7 @@ let lastMass = 0;
 let position = {x: 0, y: 0};
 let canMove = true;
 let creation = null;
+let createCount = 0;
 
 window.addEventListener('DOMContentLoaded', () => {
 
@@ -43,6 +44,8 @@ window.addEventListener('DOMContentLoaded', () => {
     canvas.addEventListener('mouseup', function (args) {
         clearTimeout(idTimeout);
         if (mouseIsDown) {
+            console.log(creation);
+            
             const object = objects.find(object => object.id === creation);
             object.ghost = false;
         }
@@ -55,6 +58,7 @@ window.addEventListener('DOMContentLoaded', () => {
 })
 
 const loop = (canvas) => {
+
     const ctx = canvas.getContext("2d");
     clearCanvas(ctx, canvas.width, canvas.height);
 
@@ -64,7 +68,6 @@ const loop = (canvas) => {
         applyGravity(obj, objects);
         draw(obj, ctx);
     }
-
 }
 
 const draw = (object, ctx) => {
@@ -80,17 +83,18 @@ const clearCanvas = (ctx, h, w) => {
 }
 
 
-const createObject = (posX, posY, mass, canMove,ghost) => {
+const createObject = (posX, posY, mass, canMove, ghost) => {
     return {
-        id: objects.length,
+        id: createCount++,
         x: posX,
         y: posY,
         mass: mass,
         canMove: canMove,
         color: getRandomColor(),
-        velocityX: Math.random()*5 - 5,
-        velocityY: Math.random()*5 - 5,
-        ghost
+        velocityX: 0,
+        velocityY: 2,
+        ghost,
+        collisionHistory: {}
     };
 }
 
@@ -115,15 +119,7 @@ const applyGravity = (obj, objects) => {
         if (other === obj) continue;
         if (other.ghost) continue;
 
-        const dx = other.x - obj.x;
-        const dy = other.y - obj.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-
-        const minDistance = (obj.mass + other.mass) / 100;
-        if (distance < minDistance) {
-            handleCollision(obj, other);
-            continue;
-        }
+        const {dx,dy,distance} = calculateDistance(obj,other);
 
         const force = G * (obj.mass * other.mass) / (distance * distance);
 
@@ -137,31 +133,108 @@ const applyGravity = (obj, objects) => {
     obj.velocityX = (obj.velocityX + accelerationX) * dampening;
     obj.velocityY = (obj.velocityY + accelerationY) * dampening;
 
-    obj.x += obj.velocityX;
-    obj.y += obj.velocityY;
+    const tempX = obj.x + obj.velocityX;
+    const tempY = obj.y + obj.velocityY;
 
-    const radius = obj.mass / 100;
-    if (obj.x < radius) {
-        obj.x = radius;
-        obj.velocityX *= -0.5;
+
+    for (const other of objects) {
+        if (other === obj) continue;
+        if (other.ghost) continue;
+
+        const minDistance = (obj.mass + other.mass) / 100;
+
+        const {distance} = calculateDistance({x:tempX,y:tempY},other);
+
+        if (distance <= minDistance) {
+            handleCollision(obj, other);
+            return;
+        }
     }
-    if (obj.x > window.innerWidth - radius) {
-        obj.x = window.innerWidth - radius;
-        obj.velocityX *= -0.5;
+
+    obj.x = tempX;
+    obj.y = tempY;
+
+    // const radius = obj.mass / 100;
+    // if (obj.x < radius) {
+    //     obj.x = radius;
+    //     obj.velocityX *= -0.5;
+    // }
+    // if (obj.x > window.innerWidth - radius) {
+    //     obj.x = window.innerWidth - radius;
+    //     obj.velocityX *= -0.5;
+    // }
+    // if (obj.y < radius) {
+    //     obj.y = radius;
+    //     obj.velocityY *= -0.5;
+    // }
+    // if (obj.y > window.innerHeight - radius) {
+    //     obj.y = window.innerHeight - radius;
+    //     obj.velocityY *= -0.5;
+    // }
+}
+
+const mergeBodies = (targetObj, otherObj) => {
+    const r1 = targetObj.mass / 100;
+    const r2 = otherObj.mass / 100;
+    
+    // Yeni radius'u alan toplamının karekökü olarak hesapla
+    const newRadius = Math.sqrt(r1 * r1 + r2 * r2);
+    
+    // Yeni mass'ı radius'tan hesapla
+    targetObj.mass = newRadius * 100;
+    
+    // Momentum koruması (eğer hedef obje hareket edebiliyorsa)
+    if (targetObj.canMove) {
+        const totalMass = targetObj.mass;
+        const oldMass = r1 * 100;
+        const addedMass = r2 * 100;
+        
+        targetObj.velocityX = (targetObj.velocityX * oldMass + 
+                             otherObj.velocityX * addedMass) / totalMass;
+        targetObj.velocityY = (targetObj.velocityY * oldMass + 
+                             otherObj.velocityY * addedMass) / totalMass;
     }
-    if (obj.y < radius) {
-        obj.y = radius;
-        obj.velocityY *= -0.5;
-    }
-    if (obj.y > window.innerHeight - radius) {
-        obj.y = window.innerHeight - radius;
-        obj.velocityY *= -0.5;
+    
+    // Diğer objeyi diziden kaldır
+    const index = objects.indexOf(otherObj);
+    if (index > -1) {
+        objects.splice(index, 1);
     }
 }
 
 const handleCollision = (obj1, obj2) => {
     if (!obj1.canMove && !obj2.canMove) return;
 
+    const currentTime = Date.now();
+    const collisionKey = `${Math.min(obj1.id, obj2.id)}-${Math.max(obj1.id, obj2.id)}`;
+    
+    if (!obj1.collisionHistory[collisionKey]) {
+        obj1.collisionHistory[collisionKey] = [];
+    }
+    if (!obj2.collisionHistory[collisionKey]) {
+        obj2.collisionHistory[collisionKey] = [];
+    }
+    
+    const oneSecondAgo = currentTime - 1000;
+    obj1.collisionHistory[collisionKey] = obj1.collisionHistory[collisionKey]
+        .filter(time => time > oneSecondAgo);
+    obj2.collisionHistory[collisionKey] = obj2.collisionHistory[collisionKey]
+        .filter(time => time > oneSecondAgo);
+    
+    obj1.collisionHistory[collisionKey].push(currentTime);
+    obj2.collisionHistory[collisionKey].push(currentTime);
+    
+    if (obj1.collisionHistory[collisionKey].length > 5) {
+        const targetObj = !obj1.canMove ? obj1 :
+                         !obj2.canMove ? obj2 : 
+                         (obj1.mass > obj2.mass ? obj1 : obj2);
+        const otherObj = targetObj === obj1 ? obj2 : obj1;
+        
+        delete targetObj.collisionHistory[collisionKey];
+        mergeBodies(targetObj, otherObj);
+        return;
+    }
+    
     const dx = obj2.x - obj1.x;
     const dy = obj2.y - obj1.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
@@ -180,21 +253,7 @@ const handleCollision = (obj1, obj2) => {
                          (obj1.mass > obj2.mass ? obj1 : obj2);
         const otherObj = targetObj === obj1 ? obj2 : obj1;
         
-        targetObj.mass += otherObj.mass;
-        
-        if (targetObj.canMove) {
-            const totalMass = targetObj.mass;
-            targetObj.velocityX = (targetObj.velocityX * (targetObj.mass - otherObj.mass) + 
-                                 otherObj.velocityX * otherObj.mass) / totalMass;
-            targetObj.velocityY = (targetObj.velocityY * (targetObj.mass - otherObj.mass) + 
-                                 otherObj.velocityY * otherObj.mass) / totalMass;
-        }
-        
-        const index = objects.indexOf(otherObj);
-        if (index > -1) {
-            objects.splice(index, 1);
-        }
-        
+        mergeBodies(targetObj, otherObj);
         return;
     }
     
@@ -212,4 +271,13 @@ const handleCollision = (obj1, obj2) => {
     }
 }
 
+const calculateDistance = (obj1, obj2) => {
+    const dx = obj2.x - obj1.x;
+    const dy = obj2.y - obj1.y;
+    return {
+        dx,
+        dy,
+        distance: Math.sqrt(dx * dx + dy * dy)
+    };
+}
 
